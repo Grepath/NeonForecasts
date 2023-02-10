@@ -12,7 +12,7 @@ source("ignore_sigpipe.R")
 
 forecast_date <- Sys.Date()
 forecast_doy = as.numeric(format(forecast_date, '%j'))-7
-noaa_date <- Sys.Date() - days(3)  #Need to use yesterday's NOAA forecast because today's is not available yet
+noaa_date <- Sys.Date() - days(1)  #Need to use yesterday's NOAA forecast because today's is not available yet
 
 # Step 0: Define a unique name which will identify your model in the leaderboard and connect it to team members info, etc
 model_id <- "xgboost_temp_oxygen_parallel"
@@ -250,6 +250,6 @@ neon4cast::forecast_output_validator(forecast_file)
 
 # Step 4: Submit forecast!
 
-# neon4cast::submit(forecast_file = forecast_file, metadata = NULL, ask = FALSE)
+neon4cast::submit(forecast_file = forecast_file, metadata = NULL, ask = FALSE)
 
 #neon4cast::check_submission(forecast_file)
