@@ -1,7 +1,7 @@
 on:
   workflow_dispatch:
-  schedule:
-  - cron: "0 20 * * *"
+#  schedule:
+#  - cron: "0 20 * * *"
 #  push:
 
 
@@ -22,3 +22,7 @@ jobs:
         run: Rscript forecast_xgboost_temp_oxygen_parallel.R
       - name: Run sequential xgboost
         run: Rscript forecast_xgboost_temp_oxygen_sequential.R
+      - name: Run parallel xgboost w/ chla
+        run: Rscript forecast_xgboost_temp_oxygen_chla_parallel.R
+      - name: Run sequential xgboost w/ chla
+        run: Rscript forecast_xgboost_temp_oxygen_chla_sequential.R

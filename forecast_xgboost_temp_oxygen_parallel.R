@@ -11,7 +11,7 @@ library(xgboost)
 source("ignore_sigpipe.R")
 
 forecast_date <- Sys.Date()
-forecast_doy = as.numeric(format(forecast_date, '%j'))-7
+forecast_doy = as.numeric(format(forecast_date, '%j'))
 noaa_date <- Sys.Date() - days(1)  #Need to use yesterday's NOAA forecast because today's is not available yet
 
 # Step 0: Define a unique name which will identify your model in the leaderboard and connect it to team members info, etc
@@ -93,7 +93,11 @@ forecast_site <- function(site) {
   site_target[['dayofyear']] <- as.numeric( format(site_target[['datetime']], '%j'))
   site_target = na.omit(site_target)
   
-  historical <- site_target %>% filter(dayofyear == forecast_doy)
+  startCheck = (forecast_doy - 7) %% 365
+  
+  historical <- site_target %>% 
+    filter(dayofyear <= forecast_doy) %>% 
+    filter(dayofyear > startCheck)
   
   forecast = data.frame()
   
@@ -250,6 +254,6 @@ neon4cast::forecast_output_validator(forecast_file)
 
 # Step 4: Submit forecast!
 
-neon4cast::submit(forecast_file = forecast_file, metadata = NULL, ask = FALSE)
+# neon4cast::submit(forecast_file = forecast_file, metadata = NULL, ask = FALSE)
 
 #neon4cast::check_submission(forecast_file)

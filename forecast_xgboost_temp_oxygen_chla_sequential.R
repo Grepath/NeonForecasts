@@ -15,7 +15,7 @@ forecast_doy = as.numeric(format(forecast_date, '%j'))
 noaa_date <- Sys.Date() - days(1)  #Need to use yesterday's NOAA forecast because today's is not available yet
 
 # Step 0: Define a unique name which will identify your model in the leaderboard and connect it to team members info, etc
-model_id <- "xgboost_temp_oxygen_sequential"
+model_id <- "xgboost_temp_oxygen_chla_sequential"
 
 # Step 1: Download latest target data and site description data
 target <- readr::read_csv(paste0("https://data.ecoforecast.org/neon4cast-targets/",
@@ -67,8 +67,8 @@ noaa_mean_forecast <- function(site, var, reference_date) {
 
 # Step 2.5: We'll skip any site that doesn't have both temperature and oxygen
 sites <- target |> na.omit() |> distinct(site_id, variable) |> 
-  filter(variable %in% c("oxygen", "temperature")) |>
-  count(site_id) |> filter(n==2) |> pull(site_id)
+  filter(variable %in% c("oxygen", "temperature", "chla")) |>
+  count(site_id) |> filter(n==3) |> pull(site_id)
 
 #Step 3.0: Define the forecasts model for a site
 forecast_site <- function(site) {
@@ -83,7 +83,7 @@ forecast_site <- function(site) {
   # Merge in past NOAA data into the targets file, matching by date.
   site_target <- target |>
     dplyr::select(datetime, site_id, variable, observation) |>
-    dplyr::filter(variable %in% c("temperature", "oxygen"), 
+    dplyr::filter(variable %in% c("temperature", "oxygen", "chla"), 
                   site_id == site) |>
     tidyr::pivot_wider(names_from = "variable", values_from = "observation") |>
     dplyr::left_join(noaa_past_mean, by = c("datetime"))
@@ -93,13 +93,12 @@ forecast_site <- function(site) {
   site_target[['dayofyear']] <- as.numeric( format(site_target[['datetime']], '%j'))
   site_target = na.omit(site_target)
   
+  # historical <- site_target %>% filter(dayofyear == forecast_doy)
   startCheck = (forecast_doy - 7) %% 365
   
   historical <- site_target %>% 
     filter(dayofyear <= forecast_doy) %>% 
     filter(dayofyear > startCheck)
-  
-  # historical <- site_target %>% filter(dayofyear == forecast_doy)
   
   forecast = data.frame()
   
@@ -122,10 +121,13 @@ forecast_site <- function(site) {
              prediction = emptyForecast,
              variable = "oxygen")
     
-    forecast <- dplyr::bind_rows(temperature, oxygen)
+    chla <- 
+      noaa_future |> 
+      mutate(site_id = site,
+             prediction = emptyForecast,
+             variable = "chla")
     
-    
-    #forecast[['prediction']] <- NA
+    forecast <- dplyr::bind_rows(temperature, oxygen, chla)
     
     
     message("Dropped Site")
@@ -170,7 +172,9 @@ forecast_site <- function(site) {
       mutate(site_id = site,
              prediction = temperaturePrediction,
              variable = "temperature")
-    # use forecasted water temperature to predict oxygen by assuming that oxygen is saturated.
+    
+    
+    # use the same weather forecast parameters to train a model for Oxygen 
     
     # oxySample <- sample(c(TRUE, FALSE), nrow(site_target), replace=TRUE, prob=c(0.8,0.2))
     # oxyTrain  <- site_target[sample, ]
@@ -179,6 +183,24 @@ forecast_site <- function(site) {
     # Generate our labels as the current water temperature
     oxytrain.label = train$oxygen
     oxytest.label = test$oxygen
+    
+    # Convert the input data to a matrix for xgboost
+    # oxytrain.data = as.matrix(train[, c("air_temperature", "dayofyear")])
+    # oxytest.data = as.matrix(test[, c("air_temperature", "dayofyear")])
+    # 
+    # # Generate Training Input for XGBoost
+    # oxydtrain<-xgb.DMatrix(data = oxytrain.data, label = oxytrain.label)
+    # # Train our model
+    # oxybst <- xgboost(data = oxydtrain, max.depth = 10, eta = 0.3, nthread = 2, nrounds = 15, verbose = 0)
+    # # Product Predictions for our Testing Dataset
+    # oxytest_pred <- predict(oxybst, oxytest.data)
+    # # Calculate Root Mean Squared Error
+    # rmse <- sqrt(mean((oxytest_pred-oxytest.label)^2))
+    # standardDev = sd(oxytest_pred-oxytest.label)
+    # message('RMSE: ', rmse)
+    # 
+    # noaa_future[['temperature']] <- temperaturePrediction
+    # future_input <- as.matrix(noaa_future[,c("air_temperature", "dayofyear")])
     
     # Convert the input data to a matrix for xgboost
     oxytrain.data = as.matrix(train[, c("air_temperature", "dayofyear", "temperature")])
@@ -197,7 +219,7 @@ forecast_site <- function(site) {
     noaa_future[['temperature']] <- temperaturePrediction
     future_input <- as.matrix(noaa_future[,c("air_temperature", "dayofyear", "temperature")])
     
-    forecasted_oxygen = predict(oxybst, future_input)
+    forecasted_oxygen = predict(oxybst, future_input)+rnorm(nrow(future_input))*standardDev
     
     # stick bits together                  
     oxygen <- 
@@ -206,7 +228,35 @@ forecast_site <- function(site) {
              prediction = forecasted_oxygen,
              variable = "oxygen")
     
-    forecast <- dplyr::bind_rows(temperature, oxygen)
+    # Generate our labels as the current water temperature
+    chlatrain.label = train$chla
+    chlatest.label = test$chla
+    
+    # Convert the input data to a matrix for xgboost
+    chlatrain.data = as.matrix(train[, c("air_temperature", "dayofyear", "temperature")])
+    chlatest.data = as.matrix(test[, c("air_temperature", "dayofyear", "temperature")])
+    
+    # Generate Training Input for XGBoost
+    chladtrain<-xgb.DMatrix(data = chlatrain.data, label = chlatrain.label)
+    # Train our model
+    chlabst <- xgboost(data = chladtrain, max.depth = 10, eta = 0.3, nthread = 2, nrounds = 15, verbose = 0)
+    # Product Predictions for our Testing Dataset
+    chlatest_pred <- predict(chlabst, chlatest.data)
+    # Calculate Root Mean Squared Error
+    rmse <- sqrt(mean((chlatest_pred-chlatest.label)^2))
+    standardDev = sd(chlatest_pred-chlatest.label)
+    message('RMSE: ', rmse)
+    
+    forecasted_chla = predict(chlabst, future_input)+rnorm(nrow(future_input))*standardDev
+    
+    # stick bits together                  
+    chla <- 
+      noaa_future |> 
+      mutate(site_id = site,
+             prediction = forecasted_chla,
+             variable = "chla")
+    
+    forecast <- dplyr::bind_rows(temperature, oxygen, chla)
   }
   
   
@@ -253,7 +303,6 @@ neon4cast::forecast_output_validator(forecast_file)
 
 # Step 4: Submit forecast!
 
-neon4cast::submit(forecast_file = forecast_file, metadata = NULL, ask = FALSE)
+# neon4cast::submit(forecast_file = forecast_file, metadata = NULL, ask = FALSE)
 
 #neon4cast::check_submission(forecast_file)
-
